@@ -93,7 +93,7 @@ n_fin <- ceiling(n0 / (1 + (n0 - 1) / N))
 cat("Población (N):", N, "\n")
 cat("sd estimada (sigma_hat):", round(sigma_hat, 3), "\n")
 cat("n0 (sin corrección):", ceiling(n0), "\n")
-cat("n (con corrección FPC):", n_fin, "\n")
+cat("n (con corrección FPC):", n_fin)
 
 
 
