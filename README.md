@@ -71,3 +71,32 @@ ggplot(Matricula_2012_I, aes(x = as.factor(Carrera), y = Indice)) +
 
 ```
 
+
+Ahora calcularemos el tamaño muestral
+
+```{r}
+
+conf.level <- 0.95        
+E <- 0.5                  
+N <- nrow(Matricula_2012_I)               
+sigma_hat <- sd(Matricula_2012_I$Indice, na.rm = TRUE)  
+Z <- qnorm(1 - (1 - conf.level) / 2)  
+
+# Tamaño muestral sin corrección por población finita
+n0 <- (Z^2 * sigma_hat^2) / (E^2)
+
+#tamaño con correcion
+n_fin <- ceiling(n0 / (1 + (n0 - 1) / N))
+
+
+# Resultados
+cat("Población (N):", N, "\n")
+cat("sd estimada (sigma_hat):", round(sigma_hat, 3), "\n")
+cat("n0 (sin corrección):", ceiling(n0), "\n")
+cat("n (con corrección FPC):", n_fin, "\n")
+
+
+
+```
+
+
