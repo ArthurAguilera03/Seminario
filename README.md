@@ -10,12 +10,17 @@ install.packages("dplyr")
 install.packages("haven")
 install.packages("ggplot2")
 install.packages("nortest")
+install.packages("rstanarm")
+install.packages("bayesplot")
+install.packages("patchwork")
 
 library(dplyr)
 library(ggplot2)
 library(nortest)
 library(haven)
-
+library(rstanarm)
+library(bayesplot)
+library(patchwork)
 ```
 
 
@@ -45,29 +50,45 @@ sum(table(Matricula_2012_I$Carrera))
 
 # Boxplot del Índice por carrera
 
-pdf("Indice_por_Carrera.pdf", width = 10, height = 6)
-
 ggplot(Matricula_2012_I, aes(x = as.factor(Carrera), y = Indice)) +
   geom_boxplot(fill = "lightblue", color = "darkblue") +
   stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "red") +
   labs(
+    title = "Distribución del Índice Académico por Carrera",
     x = "Código de Carrera",
     y = "Índice Académico"
   ) +
   theme_minimal() +
   theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5, margin = margin(b = 15)),
     axis.text.x = element_text(
-      angle = 45,        # Giro de las etiquetas
-      hjust = 1,         # Alineación
-      size = 6,          # Tamaño más pequeño
+      angle = 45,
+      hjust = 1,
+      size = 16,
       face = "bold",
       color = "darkblue"
     ),
-    axis.text.y = element_text(size = 10, face = "bold", color = "darkblue"),
-    axis.title = element_text(size = 12, face = "bold"),
-    plot.title = element_text(size = 14, face = "bold")
+    axis.text.y = element_text(
+      size = 18,
+      face = "bold", 
+      color = "darkblue"
+    ),
+    axis.title.x = element_text(
+      size = 16,  # Aumentado de 14 a 16
+      face = "bold", 
+      margin = margin(t = 12)
+    ),
+    axis.title.y = element_text(
+      size = 16,  # Aumentado de 14 a 16
+      face = "bold", 
+      margin = margin(r = 12)
+    ),
+    panel.grid.major = element_line(color = "grey90"),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(1, 1, 1, 1, "cm")
   )
-dev.off()
+
+ggsave("Indice_por_Carrera.png", width = 10, height = 6, dpi = 300, bg = "white")
 
 
 ```
@@ -155,5 +176,135 @@ ggsave("mi_grafico_qq.png", width = 8, height = 6, dpi = 300, bg = "white")
 
 
 ```
+Ahora se prosigue al análisis de la posterior
+```{r}
+# Pasar la Muestra a data frame y cambiar el nombre de la variable
+muestra_limpia <- as.data.frame(muestra_limpia)
+names(muestra_limpia)[names(muestra_limpia) == "muestra_limpia"] <- "indice"
+
+
+# MODELOS DE SENSIBILIDAD CON DIFERENTES PREVIAS
+
+# 1. MODELO PRINCIPAL 
+fit_principal <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(65, 10),   # μ ~ N(65, 10)
+  prior_aux = cauchy(0, 12),          # σ ~ Half-Cauchy(0, 12)
+  seed = 123,
+  refresh = 0
+)
+
+# 2. MODELO CONSERVADOR
+fit_conservador <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(60, 12),   # Más conservador
+  prior_aux = cauchy(0, 15),          # Más incertidumbre en σ
+  seed = 123,
+  refresh = 0
+)
+
+# 3. MODELO OPTIMISTA
+fit_optimista <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(70, 8),    # Más optimista
+  prior_aux = cauchy(0, 10),          # Menos variabilidad
+  seed = 123,
+  refresh = 0
+)
+
+# 4. MODELO DE REFERENCIA (muy débil)
+fit_referencia <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(65, 40),   # Muy vaga
+  prior_aux = cauchy(0, 25),          # Muy vaga
+  seed = 123,
+  refresh = 0
+)
+#_______________________________________________________________________________
+
+# EXTRACCIÓN DE RESULTADOS
+extraer_resultados <- function(fit, nombre_modelo) {
+  # Resumen posterior
+  post_summary <- summary(fit, probs = c(0.025, 0.975))
+  
+  # Extraer parámetros
+  mu_est <- post_summary[1, ]
+  sigma_est <- post_summary[2, ]
+  
+  data.frame(
+    Modelo = nombre_modelo,
+    Parametro = c("mu", "sigma"),
+    Media = c(mu_est["mean"], sigma_est["mean"]),
+    SD = c(mu_est["sd"], sigma_est["sd"]),
+    Q2.5 = c(mu_est["2.5%"], sigma_est["2.5%"]),
+    Q97.5 = c(mu_est["97.5%"], sigma_est["97.5%"]),
+    Rhat = c(mu_est["Rhat"], sigma_est["Rhat"])
+  )
+}
+
+# Crear tabla comparativa
+resultados <- bind_rows(
+  extraer_resultados(fit_principal, "Principal (65,10; 0,12)"),
+  extraer_resultados(fit_conservador, "Conservador (60,12; 0,15)"),
+  extraer_resultados(fit_optimista, "Optimista (70,8; 0,10)"),
+  extraer_resultados(fit_referencia, "Referencia (65,40; 0,25)")
+)
+
+print("TABLA COMPARATIVA DE RESULTADOS:")
+print(resultados, digits = 3)
+
+# para visualizar el resultado real de la media solo para validar la metodologia
+
+mean(Matricula_2012_I$Indice, na.rm = T)
+
+# ANÁLISIS GRÁFICO DE SENSIBILIDAD
+
+# 1. Distribuciones posteriores de μ
+mu_samples <- bind_rows(
+  data.frame(Media = as.matrix(fit_principal)[, "(Intercept)"], Modelo = "Principal"),
+  data.frame(Media = as.matrix(fit_conservador)[, "(Intercept)"], Modelo = "Conservador"),
+  data.frame(Media = as.matrix(fit_optimista)[, "(Intercept)"], Modelo = "Optimista"),
+  data.frame(Media = as.matrix(fit_referencia)[, "(Intercept)"], Modelo = "Referencia")
+)
+
+#Grafico 
+
+p1 <- ggplot(mu_samples, aes(x = Media, fill = Modelo)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "Distribuciones Posteriores de la Media (μ)",
+       x = "Media del índice académico",
+       y = "Densidad") +
+  scale_fill_brewer(palette = "Set1") +
+  geom_vline(xintercept = 60, linetype = "dashed", color = "red") +
+  annotate("text", x = 60, y = 0.02, label = "Umbral aprobación (60)",
+           vjust = -0.5, hjust = -0.1, color = "red", size = 5) +
+  theme_minimal(base_size = 16) +  # ← AUMENTA TODO: 16pt
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12)
+  )
+
+# GUARDAR Gráfico
+ggsave("posterior_media_sensibilidad.png", plot = p1, 
+       width = 7, height = 5, dpi = 300, device = "png")
+
+```
+
+
+
+
+
+
 
 
