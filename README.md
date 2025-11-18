@@ -13,6 +13,7 @@ install.packages("nortest")
 install.packages("rstanarm")
 install.packages("bayesplot")
 install.packages("patchwork")
+install.packages("bridgesampling")
 
 library(dplyr)
 library(ggplot2)
@@ -21,6 +22,7 @@ library(haven)
 library(rstanarm)
 library(bayesplot)
 library(patchwork)
+library(bridgesampling)
 ```
 
 
@@ -171,10 +173,6 @@ ggsave("mi_grafico_qq.png", width = 8, height = 6, dpi = 300, bg = "white")
 
 
 
-
-
-
-
 ```
 Ahora se prosigue al análisis de la posterior
 ```{r}
@@ -301,6 +299,102 @@ ggsave("posterior_media_sensibilidad.png", plot = p1,
 
 ```
 
+Para validar nuestro modelo, se usará el factor de bayes
+```{r}
+
+# FACTOR DE BAYES - MÉTODO ALTERNATIVO 
+
+# Calcular log marginal likelihood para cada modelo
+cat("\nCALCULANDO FACTORES DE BAYES...\n")
+
+# Necesitamos recomputar los modelos con diagnostic_file
+fit_principal_bf <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(65, 10),
+  prior_aux = cauchy(0, 12),
+  seed = 123,
+  refresh = 0,
+  diagnostic_file = file.path(tempdir(), "df1.csv")
+)
+
+fit_conservador_bf <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(60, 12),
+  prior_aux = cauchy(0, 15),
+  seed = 123,
+  refresh = 0,
+  diagnostic_file = file.path(tempdir(), "df2.csv") 
+)
+
+fit_optimista_bf <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(70, 8),
+  prior_aux = cauchy(0, 10),
+  seed = 123,
+  refresh = 0,
+  diagnostic_file = file.path(tempdir(), "df3.csv")
+)
+
+fit_referencia_bf <- stan_glm(
+  indice ~ 1,
+  data = muestra_limpia,
+  family = gaussian(),
+  prior_intercept = normal(65, 40),
+  prior_aux = cauchy(0, 25),
+  seed = 123,
+  refresh = 0,
+  diagnostic_file = file.path(tempdir(), "df4.csv")
+)
+
+# Calcular log marginal likelihoods
+logml_principal <- bridge_sampler(fit_principal_bf, silent = TRUE)
+logml_conservador <- bridge_sampler(fit_conservador_bf, silent = TRUE)
+logml_optimista <- bridge_sampler(fit_optimista_bf, silent = TRUE)
+logml_referencia <- bridge_sampler(fit_referencia_bf, silent = TRUE)
+
+# Calcular Factores de Bayes manualmente
+bf_conservador <- exp(logml_principal$logml - logml_conservador$logml)
+bf_optimista <- exp(logml_principal$logml - logml_optimista$logml)
+bf_referencia <- exp(logml_principal$logml - logml_referencia$logml)
+
+# Función para interpretación
+interpretar_bf <- function(bf) {
+  if (bf < 1) return("Evidencia a favor del modelo comparado")
+  if (bf >= 1 & bf < 3) return("Evidencia anecdótica")
+  if (bf >= 3 & bf < 10) return("Evidencia sustancial")
+  if (bf >= 10 & bf < 30) return("Evidencia fuerte")
+  if (bf >= 30 & bf < 100) return("Evidencia muy fuerte")
+  if (bf >= 100) return("Evidencia extrema")
+  return("No clasificable")
+}
+
+# Mostrar resultados
+cat("\nFACTORES DE BAYES - COMPARACIÓN CON MODELO PRINCIPAL\n")
+cat("=====================================================\n")
+cat("Modelo Conservador vs Principal: BF =", round(bf_conservador, 2))
+cat(" ->", interpretar_bf(bf_conservador), "\n")
+
+cat("Modelo Optimista vs Principal: BF =", round(bf_optimista, 2))
+cat(" ->", interpretar_bf(bf_optimista), "\n")
+
+cat("Modelo Referencia vs Principal: BF =", round(bf_referencia, 2)) 
+cat(" ->", interpretar_bf(bf_referencia), "\n")
+
+# Crear tabla resumen
+bf_tabla <- data.frame(
+  Comparacion = c("Conservador vs Principal", "Optimista vs Principal", "Referencia vs Principal"),
+  Factor_Bayes = c(bf_conservador, bf_optimista, bf_referencia),
+  Interpretacion = c(interpretar_bf(bf_conservador), interpretar_bf(bf_optimista), interpretar_bf(bf_referencia))
+)
+
+print(bf_tabla)
+```
 
 
 
