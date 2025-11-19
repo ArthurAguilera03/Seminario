@@ -39,7 +39,6 @@ Matricula_2012_I <- Matricula_2012_I %>%
 
 ```
 
-
 ```{r}
 
 # Visualizar la frecuencia 
@@ -57,31 +56,26 @@ ggplot(Matricula_2012_I, aes(x = as.factor(Carrera), y = Indice)) +
   stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "red") +
   labs(
     title = "Distribución del Índice Académico por Carrera",
-    x = "Código de Carrera",
+    x = "Carrera",  # Cambié de "Código de Carrera" a "Carrera"
     y = "Índice Académico"
   ) +
   theme_minimal() +
   theme(
     plot.title = element_text(size = 18, face = "bold", hjust = 0.5, margin = margin(b = 15)),
-    axis.text.x = element_text(
-      angle = 45,
-      hjust = 1,
-      size = 16,
-      face = "bold",
-      color = "darkblue"
-    ),
+    axis.text.x = element_blank(),  # OCULTA las etiquetas del eje X
+    axis.ticks.x = element_blank(), # Opcional: quita las marcas del eje X
     axis.text.y = element_text(
       size = 18,
       face = "bold", 
       color = "darkblue"
     ),
     axis.title.x = element_text(
-      size = 16,  # Aumentado de 14 a 16
+      size = 16,
       face = "bold", 
       margin = margin(t = 12)
     ),
     axis.title.y = element_text(
-      size = 16,  # Aumentado de 14 a 16
+      size = 16,
       face = "bold", 
       margin = margin(r = 12)
     ),
@@ -299,15 +293,14 @@ ggsave("posterior_media_sensibilidad.png", plot = p1,
 
 ```
 
-Para validar nuestro modelo, se usará el factor de bayes
+Para validar nuestro modelo o para encontrar el mejor modelo, se usará el Factor de Bayes:
+
+
 ```{r}
 
-# FACTOR DE BAYES - MÉTODO ALTERNATIVO 
 
-# Calcular log marginal likelihood para cada modelo
-cat("\nCALCULANDO FACTORES DE BAYES...\n")
 
-# Necesitamos recomputar los modelos con diagnostic_file
+# Ajuste de los 4 modelos con diagnostic_file
 fit_principal_bf <- stan_glm(
   indice ~ 1,
   data = muestra_limpia,
@@ -352,52 +345,92 @@ fit_referencia_bf <- stan_glm(
   diagnostic_file = file.path(tempdir(), "df4.csv")
 )
 
-# Calcular log marginal likelihoods
-logml_principal <- bridge_sampler(fit_principal_bf, silent = TRUE)
-logml_conservador <- bridge_sampler(fit_conservador_bf, silent = TRUE)
-logml_optimista <- bridge_sampler(fit_optimista_bf, silent = TRUE)
-logml_referencia <- bridge_sampler(fit_referencia_bf, silent = TRUE)
+# Calcular log marginal likelihoods (CORREGIDO: extraer el valor numérico)
+logml_principal <- bridge_sampler(fit_principal_bf, silent = TRUE)$logml
+logml_conservador <- bridge_sampler(fit_conservador_bf, silent = TRUE)$logml
+logml_optimista <- bridge_sampler(fit_optimista_bf, silent = TRUE)$logml
+logml_referencia <- bridge_sampler(fit_referencia_bf, silent = TRUE)$logml
 
-# Calcular Factores de Bayes manualmente
-bf_conservador <- exp(logml_principal$logml - logml_conservador$logml)
-bf_optimista <- exp(logml_principal$logml - logml_optimista$logml)
-bf_referencia <- exp(logml_principal$logml - logml_referencia$logml)
-
-# Función para interpretación
+# Función para interpretación CORREGIDA
 interpretar_bf <- function(bf) {
-  if (bf < 1) return("Evidencia a favor del modelo comparado")
-  if (bf >= 1 & bf < 3) return("Evidencia anecdótica")
-  if (bf >= 3 & bf < 10) return("Evidencia sustancial")
-  if (bf >= 10 & bf < 30) return("Evidencia fuerte")
-  if (bf >= 30 & bf < 100) return("Evidencia muy fuerte")
-  if (bf >= 100) return("Evidencia extrema")
-  return("No clasificable")
+  if (bf > 100) return("Decisiva: Modelo 1 mucho mejor")
+  if (bf > 30) return("Muy fuerte: Modelo 1 muy superior")
+  if (bf > 10) return("Fuerte: Modelo 1 claramente mejor")
+  if (bf > 3) return("Sólida: Modelo 1 probablemente mejor")
+  if (bf > 1) return("Débil: Ligera ventaja del Modelo 1")
+  if (bf == 1) return("Empate: Ambos modelos iguales")
+  
+  # Para BF < 1
+  bf_inv <- 1/bf
+  if (bf_inv > 100) return("Decisiva: Modelo 2 mucho mejor")
+  if (bf_inv > 30) return("Muy fuerte: Modelo 2 muy superior")
+  if (bf_inv > 10) return("Fuerte: Modelo 2 claramente mejor")
+  if (bf_inv > 3) return("Sólida: Modelo 2 probablemente mejor")
+  return("Débil: Ligera ventaja del Modelo 2")
 }
 
-# Mostrar resultados
-cat("\nFACTORES DE BAYES - COMPARACIÓN CON MODELO PRINCIPAL\n")
-cat("=====================================================\n")
-cat("Modelo Conservador vs Principal: BF =", round(bf_conservador, 2))
-cat(" ->", interpretar_bf(bf_conservador), "\n")
-
-cat("Modelo Optimista vs Principal: BF =", round(bf_optimista, 2))
-cat(" ->", interpretar_bf(bf_optimista), "\n")
-
-cat("Modelo Referencia vs Principal: BF =", round(bf_referencia, 2)) 
-cat(" ->", interpretar_bf(bf_referencia), "\n")
-
-# Crear tabla resumen
-bf_tabla <- data.frame(
-  Comparacion = c("Conservador vs Principal", "Optimista vs Principal", "Referencia vs Principal"),
-  Factor_Bayes = c(bf_conservador, bf_optimista, bf_referencia),
-  Interpretacion = c(interpretar_bf(bf_conservador), interpretar_bf(bf_optimista), interpretar_bf(bf_referencia))
+# Calcular TODOS los Factores de Bayes (6 comparaciones)
+comparaciones <- data.frame(
+  Comparacion = c(
+    "Principal vs Conservador",
+    "Principal vs Optimista", 
+    "Principal vs Referencia",
+    "Conservador vs Optimista",
+    "Conservador vs Referencia",
+    "Optimista vs Referencia"
+  ),
+  BF10 = c(
+    exp(logml_principal - logml_conservador),
+    exp(logml_principal - logml_optimista),
+    exp(logml_principal - logml_referencia),
+    exp(logml_conservador - logml_optimista),
+    exp(logml_conservador - logml_referencia),
+    exp(logml_optimista - logml_referencia)
+  )
 )
 
-print(bf_tabla)
+# Aplicar interpretación
+comparaciones$Interpretacion <- sapply(comparaciones$BF10, interpretar_bf)
+comparaciones$BF10 <- round(comparaciones$BF10, 3)
+
+# Determinar modelo favorecido
+comparaciones$Modelo_Favorecido <- ifelse(
+  comparaciones$BF10 > 1,
+  sub(" vs .*", "", comparaciones$Comparacion),
+  sub(".* vs ", "", comparaciones$Comparacion)
+)
+
+# Ordenar por fuerza de evidencia absoluta
+comparaciones$BF_Absoluto <- pmax(comparaciones$BF10, 1/comparaciones$BF10)
+comparaciones <- comparaciones[order(comparaciones$BF_Absoluto, decreasing = TRUE), ]
+comparaciones$BF_Absoluto <- NULL
+
+# Mostrar resultados
+cat("\nFACTORES DE BAYES - TODAS LAS COMPARACIONES\n")
+cat("============================================\n")
+cat("BF10 > 1 favorece al primer modelo, BF10 < 1 favorece al segundo\n\n")
+
+print(comparaciones, row.names = FALSE)
+
+# Resumen adicional
+cat("\nRESUMEN - LOG MARGINAL LIKELIHOOD:\n")
+cat("Principal:  ", round(logml_principal, 2), "\n")
+cat("Conservador:", round(logml_conservador, 2), "\n")
+cat("Optimista:  ", round(logml_optimista, 2), "\n")
+cat("Referencia: ", round(logml_referencia, 2), "\n")
+
+# Identificar mejor modelo
+logmls <- c(Principal = logml_principal, Conservador = logml_conservador, 
+            Optimista = logml_optimista, Referencia = logml_referencia)
+mejor_modelo <- names(which.max(logmls))
+cat("\nMEJOR MODELO (mayor log marginal likelihood):", mejor_modelo, "\n")
 ```
 
-
-
+Por ultimo estimaremos nuestra media con el modelo elegido: "Optimista".
+```{r}
+media_estimada <- mean(as.data.frame(fit_optimista)$`(Intercept)`)
+cat("Media estimada:", round(media_estimada, 1), "puntos\n")
+```
 
 
 
