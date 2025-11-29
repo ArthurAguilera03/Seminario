@@ -429,6 +429,7 @@ cat("\nMEJOR MODELO (mayor log marginal likelihood):", mejor_modelo, "\n")
 Por ultimo estimaremos nuestra media con el modelo elegido: "Optimista".
 ```{r}
 media_estimada <- mean(as.data.frame(fit_optimista)$`(Intercept)`)
+
 cat("Media estimada:", round(media_estimada, 1), "puntos\n")
 ```
 
